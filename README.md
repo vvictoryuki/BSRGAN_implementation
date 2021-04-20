@@ -2,6 +2,10 @@
 
 This code is the unofficial implementation of this [**work**](https://github.com/cszn/BSRGAN). Specifically, I coded the pipeline of the whole degradation model according to the configuration given in the [**paper**](https://arxiv.org/abs/2103.14006). Note that some details are different from the original paper (For the sake of simplicity, I've removed the processed camera sensor noise, but this part may be key to the generalization of the network). I chose [**HiFaceGAN**](https://github.com/pkuvcl/Face-Renovation) as the model for restoring the degraded images. I used the code `degrade.py` to generate **10000 degraded face images** in advance. After training with **two V100** on hifacegan for **one day**, the reconstruction effect on the real images I found is much better than the general bicubic degradation method.
 
+### Update
+
+I added the code of the processed camera sensor noise, thanks for this [work](https://github.com/timothybrooks/unprocessing), but I have not tested the effectiveness of this method. Note that my implementation of this method is slightly different from the BSRGAN author's paper.
+
 ## Comparison
 
 The degraded images below are all real images from social networks.

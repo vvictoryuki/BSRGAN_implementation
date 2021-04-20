@@ -4,6 +4,11 @@ import random
 from scipy import ndimage
 import imgaug.augmenters as ia
 from scipy.interpolate import interp2d
+from unprocess import unprocess, random_noise_levels, add_noise
+from process import process
+import tensorflow as tf
+import glob
+import os
 
 
 def get_degrade_seq():
@@ -86,8 +91,13 @@ def get_degrade_seq():
         degrade_seq.append(B_jpeg)
 
     # -------------------
-    # camera sensor noise
+    # Processed camera sensor noise
     # -------------------
+    if random.randint(1, 4) <= 4:
+        B_camera = {
+            "mode": "camera",
+        }
+        degrade_seq.append(B_camera)
 
     # -------
     # shuffle
@@ -118,7 +128,7 @@ def get_degrade_seq():
 def degradation_pipeline(img):
     h, w, c = img.shape
     degrade_seq = get_degrade_seq()
-    print_degrade_seg(degrade_seq)
+    # print_degrade_seg(degrade_seq)
     for degrade_dict in degrade_seq:
         mode = degrade_dict["mode"]
         if mode == "blur":
@@ -129,6 +139,8 @@ def degradation_pipeline(img):
             img = get_noise(img, degrade_dict)
         elif mode == 'jpeg':
             img = get_jpeg(img, degrade_dict)
+        elif mode == 'camera':
+            img = get_camera(img, degrade_dict)
         elif mode == 'restore':
             img = get_restore(img, h, w, degrade_dict)
     return img
@@ -169,9 +181,11 @@ def get_down(img, degrade_dict):
     if mode == "nearest":
         img = img[0::sf, 0::sf, :]
     elif mode == "bilinear":
-        img = cv2.resize(img, (int(h/sf), int(w/sf)), interpolation=cv2.INTER_LINEAR)
+        new_h, new_w = int(h/sf)//2*2, int(w/sf)//2*2
+        img = cv2.resize(img, (new_h, new_w), interpolation=cv2.INTER_LINEAR)
     elif mode == "bicubic":
-        img = cv2.resize(img, (int(h/sf), int(w/sf)), interpolation=cv2.INTER_CUBIC)
+        new_h, new_w = int(h/sf)//2*2, int(w/sf)//2*2
+        img = cv2.resize(img, (new_h, new_w), interpolation=cv2.INTER_CUBIC)
     return img
 
 
@@ -187,6 +201,28 @@ def get_jpeg(img, degrade_dict):
     degrade_function = lambda x: trans.augment_image(x)
     img = degrade_function(img.astype(np.uint8))
     return img
+
+
+def get_camera(img, degrade_dict):
+    img = tf.convert_to_tensor(img, dtype=tf.float32) / 255.
+    deg_img, features = unprocess(img)
+
+    shot_noise, read_noise = random_noise_levels()
+    deg_img = add_noise(deg_img, shot_noise, read_noise)
+
+    deg_img = tf.expand_dims(deg_img, 0)
+    features['red_gain'] = tf.expand_dims(features['red_gain'], axis=0)
+    features['blue_gain'] = tf.expand_dims(features['blue_gain'], axis=0)
+    features['cam2rgb'] = tf.expand_dims(features['cam2rgb'], axis=0)
+    # print(features['red_gain'], features['blue_gain'], features['cam2rgb'])
+    deg_img = process(deg_img, features['red_gain'], features['blue_gain'], features['cam2rgb'])
+    # print(deg_img.shape)
+    deg_img = tf.squeeze(deg_img)
+    deg_img = tf.saturate_cast(deg_img * 255 + 0.5, tf.uint8)
+    # print(deg_img.shape, type(deg_img))
+    deg_img = np.array(deg_img).astype(np.uint8)
+    # img = cv2.cvtColor(deg_img, cv2.COLOR_BGR2RGB)
+    return deg_img
 
 
 def get_restore(img, h, w, degrade_dict):
@@ -258,17 +294,33 @@ if __name__ == "__main__":
         "mode": "jpeg",
         "qf": 30
     }
+    test_camera = {
+        "mode": "camera",
+    }
     test_restore = {
         "mode": "restore",
         "sf": 2,
         "need_shift": False
     }
-    img = cv2.imread("./baby_GT.bmp")
-    h, w, c = img.shape
+    img = cv2.imread("./tiny_test/65024.png")
+    # h, w, c = img.shape
     # blur_img = get_blur(img, test_blur)
     # down_img = get_down(img, test_down)
     # noise_img = get_noise(img, test_noise)
     # jpeg_img = get_jpeg(img, test_jpeg)
+    # camera_img = get_camera(img, test_camera)
     # restore_img = get_restore(down_img, h, w, test_restore)
     restore_img = degradation_pipeline(img)
     cv2.imwrite("./deg.png", restore_img)
+    # cv2.imwrite("./deg.png", camera_img)
+
+    # img_list = glob.glob('./tiny_test/*.png')
+    # save_dir = "./tiny_test" + '_prac'
+    # if not os.path.exists(save_dir):
+    #     os.makedirs(save_dir)
+    # for img_path in img_list:
+    #     img = cv2.imread(img_path)
+    #     img_name = os.path.basename(img_path)
+    #     # print(img_name)
+    #     img = degradation_pipeline(img)
+    #     cv2.imwrite(os.path.join(save_dir, img_name), img)
